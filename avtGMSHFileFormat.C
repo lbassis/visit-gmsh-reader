@@ -57,6 +57,8 @@
 #include <vtkUnstructuredGrid.h>
 #include <vtkCellType.h>
 
+#include <vtkPoints.h>
+
 #include <avtDatabaseMetaData.h>
 
 #include <DBOptionsAttributes.h>
@@ -169,41 +171,42 @@ avtGMSHFileFormat::FreeUpResources(void)
 void
 avtGMSHFileFormat::PopulateDatabaseMetaData(avtDatabaseMetaData *md)
 {
-  //
   // CODE TO ADD A MESH
   //
-  // string meshname = ...
+  std::string meshname = "mesh";
   //
   // AVT_RECTILINEAR_MESH, AVT_CURVILINEAR_MESH, AVT_UNSTRUCTURED_MESH,
   // AVT_POINT_MESH, AVT_SURFACE_MESH, AVT_UNKNOWN_MESH
-  // avtMeshType mt = AVT_RECTILINEAR_MESH;
+  avtMeshType mt = AVT_UNSTRUCTURED_MESH;
   //
-  // int nblocks = 1;  <-- this must be 1 for STSD
-  // int block_origin = 0;
-  // int spatial_dimension = 2;
-  // int topological_dimension = 2;
-  // double *extents = NULL;
+  int nblocks = 1;//  <-- this must be 1 for STSD
+  int block_origin = 0;
+  int spatial_dimension = 3;
+  int topological_dimension = 3;
+  double *extents = NULL;
   //
   // Here's the call that tells the meta-data object that we have a mesh:
   //
-  // AddMeshToMetaData(md, meshname, mt, extents, nblocks, block_origin,
-  //                   spatial_dimension, topological_dimension);
+  AddMeshToMetaData(md, meshname, mt, extents, nblocks, block_origin,
+                     spatial_dimension, topological_dimension);
   //
 
   //
   // CODE TO ADD A SCALAR VARIABLE
   //
-  // string mesh_for_this_var = meshname; // ??? -- could be multiple meshes
-  // string varname = ...
+  std::string mesh_for_this_var = meshname; // ??? -- could be multiple meshes
+  std::string varname1 = "physical";
+  std::string varname2 = "elementary";
   //
   // AVT_NODECENT, AVT_ZONECENT, AVT_UNKNOWN_CENT
-  // avtCentering cent = AVT_NODECENT;
+  avtCentering cent = AVT_ZONECENT;
   //
   //
   // Here's the call that tells the meta-data object that we have a var:
   //
-  // AddScalarVarToMetaData(md, varname, mesh_for_this_var, cent);
-  //
+  AddScalarVarToMetaData(md, varname1, mesh_for_this_var, cent);
+  AddScalarVarToMetaData(md, varname2, mesh_for_this_var, cent);
+//
 }
 
 
@@ -256,13 +259,20 @@ avtGMSHFileFormat::GetMesh(const char *meshname)
     y.push_back(std::stod(toks_vertices[2]));
     z.push_back(std::stod(toks_vertices[3]));
   }
-
+  
   // TODO:
   // Puis utiliser la structure de données VTK appropriée pour les stocker.
-
+  vtkPoints *points = vtkPoints::New();
+  points->SetNumberOfPoints(nodes_end_index);
+  for (int i = 0; i < nodes_end_index; i++) {
+    points->SetPoint(i, x[i], y[i], z[i]); 
+  }
   // TODO:
   // Initialiser un maillage non structuré à partir de cette dernière structure.
-    
+  vtkUnstructuredGrid *grid = vtkUnstructuredGrid::New();
+  grid->SetPoints(points);
+  points->Delete();
+
   // TODO:
   // Lire les éléments (triangles et tetrahèdres) entre les balises $Elements et $EndElements.
   std::vector<std::string>::iterator elements_start_it =
@@ -287,6 +297,8 @@ avtGMSHFileFormat::GetMesh(const char *meshname)
       elm.push_back(std::stoi(toks_elms[nb-2])-1);
       elm.push_back(std::stoi(toks_elms[nb-1])-1);
       elements_data.push_back(elm);
+      var_physical.push_back(1);//std::stod(toks_elms[3]));
+      var_elementary.push_back(1);//std::stod(toks_elms[4]));
     } else if (toks_elms[1] == "4") {
       elm.push_back(4);
       elm.push_back(std::stoi(toks_elms[nb-4])-1);
@@ -294,16 +306,40 @@ avtGMSHFileFormat::GetMesh(const char *meshname)
       elm.push_back(std::stoi(toks_elms[nb-2])-1);
       elm.push_back(std::stoi(toks_elms[nb-1])-1);
       elements_data.push_back(elm);
+      var_physical.push_back(1);//std::stod(toks_elms[3]));
+      var_elementary.push_back(1);//std::stod(toks_elms[4]));
     }
   }
   
   // TODO:
   // Allouer l'espace mémoire utilisé par le maillage en fonction du nombre de cellules.
-
+  grid->Allocate(elements_data.size());
   // TODO:
   // Utiliser la structure de données VTK appropriée pour stocker les éléments du maillage.
-  
-  return nullptr;
+
+  int ntri = 0, ntetra = 0;
+  vtkIdList *ids = vtkIdList::New();
+  for (auto& elm : elements_data) {
+    if (elm[0] == 2) {
+      ntri++;
+      ids->SetNumberOfIds(3);
+      ids->SetId(0, elm[1]);
+      ids->SetId(1, elm[2]);
+      ids->SetId(2, elm[3]);
+      grid->InsertNextCell(VTK_TRIANGLE, ids);
+    }
+    else if (elm[0] == 4) {
+      ntetra++;
+      ids->SetNumberOfIds(4);
+      ids->SetId(0, elm[1]);
+      ids->SetId(1, elm[2]);
+      ids->SetId(2, elm[3]);
+      ids->SetId(3, elm[4]);
+      grid->InsertNextCell(VTK_TETRA, ids);
+    }
+  }
+
+  return grid;
 }
 
 // ****************************************************************************
@@ -325,7 +361,7 @@ avtGMSHFileFormat::GetMesh(const char *meshname)
 vtkDataArray *
 avtGMSHFileFormat::GetVar(const char *varname)
 {
-  return nullptr;
+  //return nullptr;
 
   //
   // If you have a file format where variables don't apply (for example a
@@ -338,16 +374,27 @@ avtGMSHFileFormat::GetVar(const char *varname)
   //
   // If you do have a scalar variable, here is some code that may be helpful.
   //
-  // int ntuples = XXX; // this is the number of entries in the variable.
-  // vtkFloatArray *rv = vtkFloatArray::New();
-  // rv->SetNumberOfTuples(ntuples);
-  // for (int i = 0 ; i < ntuples ; i++)
-  // {
-  //      rv->SetTuple1(i, VAL);  // you must determine value for ith entry.
-  // }
-  //
-  // return rv;
-  //
+  int ntuples = var_physical.size(); // this is the number of entries in the variable.
+  vtkFloatArray *rv = vtkFloatArray::New();
+  rv->SetNumberOfTuples(ntuples);
+
+  if (strcmp(varname, "physical") == 0) {
+    for (int i = 0 ; i < ntuples ; i++) {
+      rv->SetTuple1(i, var_physical[i]);  // you must determine value for ith entry.
+    }
+    return rv;
+  }
+  else if (strcmp(varname, "elementary") == 0) {
+    for (int i = 0 ; i < ntuples ; i++) {
+      rv->SetTuple1(i, var_elementary[i]);  // you must determine value for ith entry.
+    }
+    return rv;
+  }
+  else {
+    EXCEPTION1(InvalidVariableException, varname);
+    return nullptr;
+  }
+
 }
 
 

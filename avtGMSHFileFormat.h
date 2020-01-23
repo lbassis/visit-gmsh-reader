@@ -92,7 +92,8 @@ protected:
   // DATA MEMBERS
   std::string m_filename;
   std::vector<std::string> m_data;
-
+  std::vector<double> var_physical;
+  std::vector<double> var_elementary;
   virtual void           PopulateDatabaseMetaData(avtDatabaseMetaData *);
 };
 
